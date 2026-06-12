@@ -187,3 +187,8 @@ npm run check
 ```
 
 Node.js 20 or newer is required.
+
+## License
+
+This project is open source under the [MIT License](LICENSE), the same license
+used by Docusaurus.
