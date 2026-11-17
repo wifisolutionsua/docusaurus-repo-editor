@@ -213,10 +213,18 @@ app.get('/api/tree', async (request, response, next) => {
 app.get('/api/file', async (request, response, next) => {
   try {
     const filePath = String(request.query.path || '');
-    response.json({path: filePath, content: await repository.readFile(filePath)});
+    const content = await repository.readFile(filePath);
+    response.json({path: filePath, content, previewPath: await repository.previewPath(filePath, content)});
   } catch (error) {
     next(error);
   }
+});
+
+app.get('/api/preview/status', (request, response) => {
+  response.set('Cache-Control', 'no-store');
+  response.json(repository?.previewStatus || (runtimeError
+    ? {phase: 'error', message: runtimeError}
+    : {phase: 'starting'}));
 });
 
 app.put('/api/file', async (request, response, next) => {

@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useRef, useState} from 'react';
 import ReactDOM from 'react-dom/client';
 import CodeMirror from '@uiw/react-codemirror';
 import {markdown} from '@codemirror/lang-markdown';
+import editorLogo from './assets/editor-logo.svg';
 import './styles.css';
 
 async function api(url, options = {}) {
@@ -105,6 +106,18 @@ const snippets = [
 ];
 
 const imagePattern = /\.(png|jpe?g|gif|webp|svg)$/i;
+const clipboardImageExtensions = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+};
+const previewLabels = {
+  starting: 'Starting preview…',
+  compiling: 'Compiling…',
+  ready: 'Ready',
+  error: 'Preview error',
+};
 const mediaDateFormat = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'medium',
   timeStyle: 'short',
@@ -130,6 +143,10 @@ function App() {
     return url.href;
   }, [previewPath, theme]);
   const [previewVersion, setPreviewVersion] = useState(0);
+  const [previewFrame, setPreviewFrame] = useState(null);
+  const [previewStatus, setPreviewStatus] = useState({phase: 'starting'});
+  const previewPhase = previewStatus.phase;
+  const refreshPending = previewFrame?.url !== previewUrl || previewFrame?.version !== previewVersion;
   const [status, setStatus] = useState({branch: '', changes: []});
   const [message, setMessage] = useState('Loading repository…');
   const [busy, setBusy] = useState(false);
@@ -185,11 +202,7 @@ function App() {
       setSelectedPath(filePath);
       setContent(file.content);
       setSavedContent(file.content);
-      const preview = await api('/api/file', {
-        method: 'PUT',
-        body: JSON.stringify({path: filePath, content: file.content}),
-      });
-      setPreviewPath(preview.previewPath);
+      setPreviewPath(file.previewPath);
       setPreviewVersion((value) => value + 1);
       setMessage('Ready');
     } catch (error) {
@@ -198,6 +211,35 @@ function App() {
       setBusy(false);
     }
   }
+
+  useEffect(() => {
+    if (!settings.ready) return;
+    let cancelled = false;
+    let timer;
+    async function checkPreview() {
+      try {
+        const status = await api('/api/preview/status');
+        if (!cancelled) setPreviewStatus(status);
+      } catch (error) {
+        if (!cancelled) setPreviewStatus({phase: 'error', message: error.message});
+      } finally {
+        if (!cancelled) timer = window.setTimeout(checkPreview, 750);
+      }
+    }
+    checkPreview();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [settings.ready]);
+
+  useEffect(() => {
+    if (!refreshPending || previewPhase !== 'ready') return;
+    const timer = window.setTimeout(() => {
+      setPreviewFrame({url: previewUrl, version: previewVersion});
+    }, 1250);
+    return () => window.clearTimeout(timer);
+  }, [previewUrl, previewVersion, previewPhase, refreshPending]);
 
   useEffect(() => {
     document.documentElement.dataset.editorTheme = theme;
@@ -290,7 +332,7 @@ function App() {
       setPreviewPath(result.previewPath);
       setPreviewVersion((value) => value + 1);
       await refreshStatus();
-      setMessage('Saved. Preview refreshed.');
+      setMessage('Saved.');
       return true;
     } catch (error) {
       setMessage(error.message);
@@ -300,13 +342,13 @@ function App() {
     }
   }
 
-  function insertSnippet(snippet) {
+  function insertSnippet(snippet, selection) {
     const view = editorRef.current?.view;
     if (!view) {
       setContent((value) => `${value}\n${snippet}`);
       return;
     }
-    const range = view.state.selection.main;
+    const range = selection || view.state.selection.main;
     view.dispatch({
       changes: {from: range.from, to: range.to, insert: snippet},
       selection: {anchor: range.from + snippet.length},
@@ -437,37 +479,63 @@ function App() {
     }
   }
 
-  function insertMedia(mediaPath) {
+  function insertMedia(mediaPath, selection) {
     const reference = relativeMediaReference(selectedPath, mediaPath);
     const alt = mediaPath.split('/').pop().replace(/\.[^.]+$/, '');
     const isImage = imagePattern.test(mediaPath);
-    insertSnippet(isImage ? `![${alt}](${reference})` : `[${alt}](${reference})`);
+    insertSnippet(isImage ? `![${alt}](${reference})` : `[${alt}](${reference})`, selection);
     setMediaOpen(false);
   }
 
-  async function uploadFile(file, {insert = true, directory = defaultUploadDirectory} = {}) {
+  async function uploadFile(file, {insert = true, directory = defaultUploadDirectory, paste} = {}) {
     if (!file) return;
 
     const form = new FormData();
     form.set('directory', directory);
     form.set('file', file);
     setBusy(true);
+    setMessage(`Uploading ${file.name}…`);
     try {
       const result = await api('/api/upload', {method: 'POST', body: form});
+      const canInsert = !paste || (
+        editorRef.current?.view === paste.view && paste.view.state.doc === paste.document
+      );
+      if (insert && canInsert) {
+        insertMedia(result.path, paste?.selection);
+        setUploadOpen(false);
+      }
       await refreshTree();
       await refreshStatus();
-      if (insert) {
-        insertMedia(result.path);
-        setUploadOpen(false);
-      } else {
+      if (!insert) {
         setMedia(await api(`/api/media?directory=${encodeURIComponent(defaultUploadDirectory)}`));
       }
-      setMessage(`Uploaded ${result.path}`);
+      setMessage(canInsert
+        ? `Uploaded ${result.path}`
+        : 'Screenshot uploaded. Select it in Media to insert it.');
     } catch (error) {
       setMessage(error.message);
     } finally {
       setBusy(false);
     }
+  }
+
+  function pasteScreenshot(event) {
+    const clipboard = event.clipboardData;
+    if (!clipboard) return;
+    const image = Array.from(clipboard.files).find((file) => clipboardImageExtensions[file.type]);
+    if (!image) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const view = editorRef.current?.view;
+    if (!markdownSelected || !view || busy) {
+      setMessage(busy ? 'Wait for the current operation before pasting.' : 'Open a document before pasting an image.');
+      return;
+    }
+    const id = Array.from(crypto.getRandomValues(new Uint8Array(8)),
+      (byte) => byte.toString(16).padStart(2, '0')).join('');
+    const filename = `screenshot-${id}.${clipboardImageExtensions[image.type]}`;
+    const file = new File([image], filename, {type: image.type});
+    uploadFile(file, {paste: {view, document: view.state.doc, selection: view.state.selection.main}});
   }
 
   async function uploadMedia(event) {
@@ -556,7 +624,7 @@ function App() {
     <div className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <div className="brand-mark">D</div>
+          <img className="brand-mark" src={editorLogo} alt="" width="32" height="32" />
           <div>
             <strong>Docs Editor</strong>
             <small>{status.branch || 'repository'}</small>
@@ -639,10 +707,13 @@ function App() {
             ))}
             <span className="toolbar-spacer" />
             <button onClick={showMedia}>Media</button>
-            <button onClick={() => setUploadOpen(true)}>Upload</button>
+            <button onClick={() => setUploadOpen(true)} title="Upload a file or paste a screenshot into the editor">
+              Upload
+            </button>
           </div>
-          <div className="code-editor">
+          <div className="code-editor" onPasteCapture={pasteScreenshot}>
             <CodeMirror
+              key={selectedPath}
               ref={editorRef}
               value={content}
               height="100%"
@@ -660,14 +731,27 @@ function App() {
 
         <section className="preview-panel">
           <div className="preview-bar">
-            <span>Live Docusaurus preview</span>
-            <button onClick={() => setPreviewVersion((value) => value + 1)}>Refresh</button>
+            <span role="status" title={previewStatus.message}>
+              {!settings.ready && !settings.initializing && !settings.error
+                ? 'Connect a repository for preview'
+                : previewPhase === 'ready' && refreshPending
+                  ? 'Updating preview…'
+                  : previewLabels[previewPhase]}
+            </span>
+            <button disabled={!settings.ready} onClick={() => setPreviewVersion((value) => value + 1)}>
+              Refresh
+            </button>
           </div>
-          <iframe
-            key={`${previewPath}-${previewVersion}`}
-            title="Docusaurus preview"
-            src={previewUrl}
-          />
+          {previewFrame && (
+            <iframe
+              key={`${previewFrame.url}-${previewFrame.version}`}
+              title="Docusaurus preview"
+              src={previewFrame.url}
+            />
+          )}
+          {previewPhase === 'error' && previewStatus.message && (
+            <div className="preview-error" role="alert">{previewStatus.message}</div>
+          )}
         </section>
       </main>
 

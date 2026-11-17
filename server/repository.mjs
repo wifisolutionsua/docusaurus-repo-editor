@@ -1,6 +1,8 @@
 import {execFile, spawn} from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {createInterface} from 'node:readline';
+import {previewBuildState} from './preview-status.mjs';
 import {promisify} from 'node:util';
 import matter from 'gray-matter';
 import {
@@ -80,6 +82,7 @@ export class Repository {
     this.branch = branch;
     this.sshEnvironment = sshEnvironment;
     this.previewProcess = null;
+    this.previewStatus = {phase: 'starting'};
   }
 
   async initialize({autoPull = false} = {}) {
@@ -175,12 +178,29 @@ export class Repository {
       {
         cwd: this.directory,
         env: {...repositoryProcessEnvironment(), BROWSER: 'none'},
-        stdio: ['ignore', 'inherit', 'inherit'],
+        stdio: ['ignore', 'pipe', 'pipe'],
       },
     );
 
-    this.previewProcess.once('exit', () => {
+    for (const [input, output] of [
+      [this.previewProcess.stdout, process.stdout],
+      [this.previewProcess.stderr, process.stderr],
+    ]) {
+      input.pipe(output, {end: false});
+      createInterface({input}).on('line', (line) => {
+        const status = previewBuildState(line);
+        if (status) this.previewStatus = status;
+      });
+    }
+
+    this.previewProcess.once('error', (error) => {
+      this.previewStatus = {phase: 'error', message: error.message};
+    });
+    this.previewProcess.once('close', (code, signal) => {
       this.previewProcess = null;
+      if (this.previewStatus.phase !== 'error') {
+        this.previewStatus = {phase: 'error', message: `Preview stopped (${signal || code}).`};
+      }
     });
 
     return this.previewProcess;
