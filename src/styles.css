@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;
   color: #e5e7eb;
   background: #0b1020;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -242,7 +243,7 @@ button:disabled {
 .preview-panel {
   grid-template-rows: 48px minmax(0, 1fr);
   border-right: 0;
-  background: white;
+  background: #0d1117;
 }
 
 .format-toolbar {
@@ -297,24 +298,16 @@ button:disabled {
 }
 
 .preview-bar {
-  color: #334155;
-  background: #f8fafc;
-  border-bottom-color: #dbe3ed;
+  color: #cbd5e1;
   font-size: 12px;
   font-weight: 700;
-}
-
-.preview-bar button {
-  color: #334155;
-  background: white;
-  border-color: #cbd5e1;
 }
 
 .preview-panel iframe {
   width: 100%;
   height: 100%;
   border: 0;
-  background: white;
+  background: inherit;
 }
 
 .modal-backdrop {
@@ -370,6 +363,25 @@ button:disabled {
   gap: 10px;
 }
 
+.media-list {
+  display: grid;
+  gap: 6px;
+}
+
+.media-view-options {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.media-view-options button {
+  padding: 5px 10px;
+}
+
+.media-view-options button[aria-pressed="true"] {
+  border-color: #60a5fa;
+}
+
 .empty-media {
   grid-column: 1 / -1;
   padding: 42px 18px;
@@ -413,20 +425,12 @@ button:disabled {
   text-align: left;
 }
 
-.media-card img,
-.file-placeholder {
+.media-card img {
   width: 100%;
   height: 110px;
   border-radius: 5px;
   object-fit: cover;
   background: #0f172a;
-}
-
-.file-placeholder {
-  display: grid;
-  place-items: center;
-  color: #64748b;
-  font-weight: 800;
 }
 
 .media-card span {
@@ -437,6 +441,29 @@ button:disabled {
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.media-card time {
+  display: block;
+  margin-top: 4px;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.media-list .media-card {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.media-list .media-card span,
+.media-list .media-card time {
+  margin-top: 0;
+}
+
+.media-list .media-card time {
+  flex-shrink: 0;
 }
 
 .upload-modal {
@@ -547,6 +574,83 @@ button:disabled {
   50% {
     opacity: 0.45;
   }
+}
+
+:root[data-editor-theme="light"] {
+  color-scheme: light;
+  color: #172033;
+  background: #eef2f7;
+}
+
+[data-editor-theme="light"] :is(.topbar, .statusbar, .panel-heading, .document-bar, .preview-bar, .modal) {
+  background: #fff;
+}
+
+[data-editor-theme="light"] :is(.sidebar, .format-toolbar, .media-card img, .public-key-box code) {
+  background: #f1f5f9;
+}
+
+[data-editor-theme="light"] :is(.code-editor, .preview-panel, .upload-modal input, .settings-modal input) {
+  background: #fff;
+}
+
+[data-editor-theme="light"] :is(.topbar, .statusbar, .sidebar, .editor-panel, .panel-heading, .document-bar,
+  .preview-bar, .format-toolbar, .modal, .empty-media, .public-key-box code, .upload-modal input, .settings-modal input) {
+  border-color: #cbd5e1;
+}
+
+[data-editor-theme="light"] :is(.statusbar, .brand small, .document-bar small, .change-count, .modal p,
+  .empty-media, .media-card time) {
+  color: #475569;
+}
+
+[data-editor-theme="light"] :is(.panel-heading, .preview-bar, .tree-folder, .tree-file, .modal h2,
+  .settings-step h3, .media-card span, .upload-modal label, .settings-modal > label,
+  .upload-modal input, .settings-modal input, .public-key-box code) {
+  color: #1e293b;
+}
+
+[data-editor-theme="light"] button:not(.primary, .icon-button, .tree-folder, .tree-file) {
+  border-color: #cbd5e1;
+  color: #1e293b;
+  background: #f8fafc;
+}
+
+[data-editor-theme="light"] button:not(.primary):hover:not(:disabled) {
+  border-color: #94a3b8;
+  background: #e2e8f0;
+}
+
+[data-editor-theme="light"] :is(.tree-file.selected, .tree-file.selected:hover) {
+  color: #1e3a8a;
+  background: #dbeafe;
+}
+
+[data-editor-theme="light"] .media-view-options button[aria-pressed="true"] {
+  border-color: #2563eb;
+  background: #dbeafe;
+}
+
+[data-editor-theme="light"] .tree-file span {
+  color: #1d4ed8;
+}
+
+[data-editor-theme="light"] .change-count.active {
+  color: #854d0e;
+}
+
+[data-editor-theme="light"] .danger-text {
+  color: #b91c1c;
+}
+
+[data-editor-theme="light"] .toolbar-divider {
+  background: #cbd5e1;
+}
+
+[data-editor-theme="light"] .settings-error {
+  border-color: #fca5a5;
+  color: #991b1b;
+  background: #fef2f2;
 }
 
 @media (max-width: 1200px) {

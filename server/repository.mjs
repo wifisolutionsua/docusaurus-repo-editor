@@ -264,17 +264,18 @@ export class Repository {
       ) {
         const absolutePath = path.join(mediaDirectory, entry.name);
         try {
-          const {mtimeMs} = await fs.lstat(absolutePath);
-          results.push({filePath: toPosixPath(path.relative(this.directory, absolutePath)), mtimeMs});
+          const {birthtimeMs, mtimeMs} = await fs.lstat(absolutePath);
+          results.push({
+            filePath: toPosixPath(path.relative(this.directory, absolutePath)),
+            addedAt: birthtimeMs > 0 ? birthtimeMs : mtimeMs,
+          });
         } catch (error) {
           if (error.code !== 'ENOENT') throw error;
         }
       }
     }
 
-    return results
-      .sort((a, b) => b.mtimeMs - a.mtimeMs || a.filePath.localeCompare(b.filePath))
-      .map(({filePath}) => filePath);
+    return results.sort((a, b) => b.addedAt - a.addedAt || a.filePath.localeCompare(b.filePath));
   }
 
   async previewPath(filePath, content) {

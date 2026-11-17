@@ -105,20 +105,37 @@ const snippets = [
 ];
 
 const imagePattern = /\.(png|jpe?g|gif|webp|svg)$/i;
+const mediaDateFormat = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+});
 
 function App() {
   const editorRef = useRef(null);
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem('docs-editor-theme') === 'light' ? 'light' : 'dark';
+    } catch {
+      return 'dark';
+    }
+  });
   const [tree, setTree] = useState([]);
   const [selectedPath, setSelectedPath] = useState('');
   const [content, setContent] = useState('');
   const [savedContent, setSavedContent] = useState('');
   const [previewPath, setPreviewPath] = useState('/');
+  const previewUrl = useMemo(() => {
+    const url = new URL(previewPath, window.location.origin);
+    url.searchParams.set('docusaurus-theme', theme);
+    return url.href;
+  }, [previewPath, theme]);
   const [previewVersion, setPreviewVersion] = useState(0);
   const [status, setStatus] = useState({branch: '', changes: []});
   const [message, setMessage] = useState('Loading repository…');
   const [busy, setBusy] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [media, setMedia] = useState([]);
+  const [mediaView, setMediaView] = useState('grid');
   const [uploadOpen, setUploadOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState({
@@ -181,6 +198,15 @@ function App() {
       setBusy(false);
     }
   }
+
+  useEffect(() => {
+    document.documentElement.dataset.editorTheme = theme;
+    try {
+      localStorage.setItem('docs-editor-theme', theme);
+    } catch {
+      // The toggle still works when browser storage is unavailable.
+    }
+  }, [theme]);
 
   useEffect(() => {
     (async () => {
@@ -537,6 +563,12 @@ function App() {
           </div>
         </div>
         <div className="topbar-actions">
+          <button
+            type="button"
+            onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+          >
+            {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+          </button>
           <span className={`change-count ${status.changes.length ? 'active' : ''}`}>
             {status.changes.length} changed
           </span>
@@ -621,7 +653,7 @@ function App() {
                 foldGutter: true,
                 highlightActiveLine: true,
               }}
-              theme="dark"
+              theme={theme}
             />
           </div>
         </section>
@@ -634,7 +666,7 @@ function App() {
           <iframe
             key={`${previewPath}-${previewVersion}`}
             title="Docusaurus preview"
-            src={previewPath}
+            src={previewUrl}
           />
         </section>
       </main>
@@ -670,13 +702,24 @@ function App() {
                 <button className="icon-button" onClick={() => setMediaOpen(false)}>×</button>
               </div>
             </div>
-            <div className="media-grid">
-              {media.map((mediaPath) => (
-                <button key={mediaPath} className="media-card" onClick={() => insertMedia(mediaPath)}>
-                  {imagePattern.test(mediaPath)
-                    ? <img src={`/api/media/file?path=${encodeURIComponent(mediaPath)}`} alt="" />
-                    : <div className="file-placeholder">FILE</div>}
-                  <span>{mediaPath}</span>
+            <div className="media-view-options" role="group" aria-label="Media view">
+              <button type="button" aria-pressed={mediaView === 'grid'} onClick={() => setMediaView('grid')}>
+                Grid
+              </button>
+              <button type="button" aria-pressed={mediaView === 'list'} onClick={() => setMediaView('list')}>
+                List
+              </button>
+            </div>
+            <div className={mediaView === 'grid' ? 'media-grid' : 'media-list'}>
+              {media.map(({filePath, addedAt}) => (
+                <button key={filePath} className="media-card" onClick={() => insertMedia(filePath)}>
+                  {mediaView === 'grid' && (
+                    <img src={`/api/media/file?path=${encodeURIComponent(filePath)}`} alt="" loading="lazy" />
+                  )}
+                  <span>{filePath.split('/').pop()}</span>
+                  <time dateTime={new Date(addedAt).toISOString()}>
+                    {mediaDateFormat.format(addedAt)}
+                  </time>
                 </button>
               ))}
               {!media.length && (
