@@ -2,6 +2,25 @@ import {createHash} from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+export async function validateDocusaurusProject(directory) {
+  const message = 'Connect the GitHub repository containing your Docusaurus site. '
+    + 'The selected branch must declare @docusaurus/core in its root package.json.';
+  let manifest;
+  try {
+    manifest = JSON.parse(await fs.readFile(path.join(directory, 'package.json'), 'utf8'));
+  } catch (error) {
+    if (error.code === 'ENOENT' || error instanceof SyntaxError) {
+      throw new Error(message);
+    }
+    throw error;
+  }
+
+  if (!manifest?.dependencies?.['@docusaurus/core']
+    && !manifest?.devDependencies?.['@docusaurus/core']) {
+    throw new Error(message);
+  }
+}
+
 export async function dependencyInstallPlan(directory) {
   for (const filename of ['npm-shrinkwrap.json', 'package-lock.json']) {
     const lockfile = path.join(directory, filename);

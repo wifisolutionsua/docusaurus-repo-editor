@@ -33,7 +33,7 @@ let runtimeError = '';
 let initializationPromise = null;
 let initializationSettings = null;
 
-async function initializeRepository(settings) {
+function initializeRepository(settings, {persist = false} = {}) {
   if (
     repository
     && runtimeSettings?.repositoryUrl === settings.repositoryUrl
@@ -69,8 +69,11 @@ async function initializeRepository(settings) {
     });
 
     try {
+      console.log('Preparing documentation repository');
       await nextRepository.initialize({autoPull: process.env.AUTO_PULL === 'true'});
+      console.log('Checking documentation dependencies');
       await nextRepository.ensureDependencies();
+      if (persist) await settingsStore.write(settings);
       nextRepository.startPreview(previewPort);
       repository = nextRepository;
       runtimeSettings = settings;
@@ -141,7 +144,8 @@ app.get(['/editor', '/editor/'], (request, response) => {
 
 app.get('/api/settings', async (request, response, next) => {
   try {
-    const settings = await settingsStore.read();
+    const settings = initializationSettings || await settingsStore.read();
+    response.set('Cache-Control', 'no-store');
     response.json({
       repositoryUrl: settings?.repositoryUrl || '',
       branch: settings?.branch || 'main',
@@ -161,12 +165,18 @@ app.put('/api/settings', async (request, response, next) => {
       repositoryUrl: normalizeRepositoryUrl(request.body.repositoryUrl),
       branch: normalizeBranch(request.body.branch),
     };
-    await initializeRepository(settings);
-    await settingsStore.write(settings);
-    response.json({
+    const publicKey = await settingsStore.publicKey();
+    const initialization = initializeRepository(settings, {persist: true});
+    if (initializationPromise) {
+      initialization.catch((error) => {
+        console.error(`Repository initialization failed: ${error.message}`);
+      });
+    }
+    response.status(initializationPromise ? 202 : 200).json({
       ...settings,
-      publicKey: await settingsStore.publicKey(),
-      ready: true,
+      publicKey,
+      ready: Boolean(repository),
+      initializing: Boolean(initializationPromise),
       error: '',
     });
   } catch (error) {

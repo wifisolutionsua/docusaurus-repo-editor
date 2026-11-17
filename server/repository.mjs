@@ -3,7 +3,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import matter from 'gray-matter';
-import {dependencyInstallPlan, isNpmCiLockfileError} from './dependencies.mjs';
+import {
+  dependencyInstallPlan,
+  isNpmCiLockfileError,
+  validateDocusaurusProject,
+} from './dependencies.mjs';
 import {previewPathForDocument, resolveInside, toPosixPath} from './paths.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -128,14 +132,15 @@ export class Repository {
   }
 
   async ensureDependencies() {
+    await validateDocusaurusProject(this.directory);
     const docusaurusBinary = path.join(this.directory, 'node_modules', '.bin', 'docusaurus');
     const stampFile = path.join(this.directory, 'node_modules', '.editor-lock-hash');
     const installPlan = await dependencyInstallPlan(this.directory);
     let installedHash = '';
 
     try {
-      installedHash = (await fs.readFile(stampFile, 'utf8')).trim();
       await fs.access(docusaurusBinary);
+      installedHash = (await fs.readFile(stampFile, 'utf8')).trim();
     } catch {}
 
     if (installPlan.hash !== installedHash) {
@@ -258,11 +263,18 @@ export class Repository {
         && mediaExtensions.has(path.extname(entry.name).toLowerCase())
       ) {
         const absolutePath = path.join(mediaDirectory, entry.name);
-        results.push(toPosixPath(path.relative(this.directory, absolutePath)));
+        try {
+          const {mtimeMs} = await fs.lstat(absolutePath);
+          results.push({filePath: toPosixPath(path.relative(this.directory, absolutePath)), mtimeMs});
+        } catch (error) {
+          if (error.code !== 'ENOENT') throw error;
+        }
       }
     }
 
-    return results.sort();
+    return results
+      .sort((a, b) => b.mtimeMs - a.mtimeMs || a.filePath.localeCompare(b.filePath))
+      .map(({filePath}) => filePath);
   }
 
   async previewPath(filePath, content) {

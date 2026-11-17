@@ -11,13 +11,15 @@ async function api(url, options = {}) {
       : {'Content-Type': 'application/json', ...options.headers},
     ...options,
   });
-  const body = response.headers.get('content-type')?.includes('application/json')
-    ? await response.json()
-    : await response.text();
+  const contentType = response.headers.get('content-type') || '';
+  const json = contentType.includes('application/json');
   if (!response.ok) {
-    throw new Error(body.error || body || `Request failed (${response.status})`);
+    const message = json
+      ? (await response.json())?.error
+      : contentType.startsWith('text/plain') ? await response.text() : '';
+    throw new Error(message || `Request failed (${response.status})`);
   }
-  return body;
+  return json ? response.json() : response.text();
 }
 
 function firstMarkdownFile(nodes) {
@@ -204,20 +206,38 @@ function App() {
   useEffect(() => {
     if (!settings.initializing || settings.ready) return undefined;
 
-    const timer = window.setTimeout(async () => {
+    let cancelled = false;
+    let timer;
+    async function checkSetup() {
       try {
-        const nextSettings = await loadSettings();
+        const nextSettings = await api('/api/settings');
+        if (cancelled) return;
+        setSettings((current) => ({
+          ...nextSettings,
+          repositoryUrl: nextSettings.repositoryUrl || current.repositoryUrl,
+          branch: nextSettings.repositoryUrl ? nextSettings.branch : current.branch,
+        }));
         if (nextSettings.ready) {
           setSettingsOpen(false);
           await loadWorkspace();
           setMessage('Repository connected.');
+        } else if (nextSettings.initializing) {
+          timer = window.setTimeout(checkSetup, 2000);
+        } else {
+          setMessage(nextSettings.error || 'Repository setup stopped. Connect again to retry.');
         }
       } catch (error) {
+        if (cancelled) return;
         setMessage(error.message);
+        timer = window.setTimeout(checkSetup, 2000);
       }
-    }, 2000);
+    }
+    timer = window.setTimeout(checkSetup, 2000);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [settings.initializing, settings.ready]);
 
   useEffect(() => {
@@ -481,9 +501,11 @@ function App() {
         }),
       });
       setSettings(nextSettings);
-      setSettingsOpen(false);
-      await loadWorkspace();
-      setMessage('Repository connected.');
+      if (nextSettings.ready) {
+        setSettingsOpen(false);
+        await loadWorkspace();
+        setMessage('Repository connected.');
+      }
     } catch (error) {
       setSettings((value) => ({...value, error: error.message}));
       setMessage(error.message);

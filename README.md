@@ -67,6 +67,10 @@ and places a source editor beside the live preview.
    Paste it into the editor Settings screen, choose the branch, and click
    **Connect repository**.
 
+   Use the repository and branch containing your Docusaurus site, with
+   `@docusaurus/core` declared in the root `package.json`. The editor's source
+   repository cannot be used as the preview site.
+
 The first connection clones the documentation repository and installs its
 dependencies. It uses `npm ci` when a valid npm lockfile exists and falls back
 to `npm install` otherwise. This can take a few minutes. The repository and its
@@ -79,6 +83,11 @@ a repository change that can be committed or removed.
 The generated private deploy key is stored only in `/data/ssh` inside the
 persistent Docker volume. Compose contains no repository URL, PAT, or Git private
 key. Recreating the volume creates a new key that must be added to GitHub again.
+
+If you connected the wrong repository, rename the volume in both places in
+Compose (for example, from `repository-data` to `docs-data`) and redeploy. This
+starts setup with a fresh volume and preserves the old checkout. Add the new
+public deploy key to the correct repository before connecting.
 
 ## Published Docker image
 
