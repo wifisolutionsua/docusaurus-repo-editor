@@ -37,3 +37,17 @@ export function sanitizeFilename(filename) {
   }
   return cleaned;
 }
+
+export function mentionsMediaFilename(content, filename) {
+  if (content.includes(filename)) return true;
+
+  // A filename can be percent-encoded in a Markdown URL or JSX attribute.
+  const decoded = content.replace(/(?:%[\da-f]{2})+/gi, (value) => {
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  });
+  return decoded.includes(filename);
+}

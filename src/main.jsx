@@ -15,10 +15,12 @@ async function api(url, options = {}) {
   const contentType = response.headers.get('content-type') || '';
   const json = contentType.includes('application/json');
   if (!response.ok) {
-    const message = json
-      ? (await response.json())?.error
-      : contentType.startsWith('text/plain') ? await response.text() : '';
-    throw new Error(message || `Request failed (${response.status})`);
+    const details = json ? await response.json() : null;
+    const message = details?.error
+      || (contentType.startsWith('text/plain') ? await response.text() : '');
+    const error = new Error(message || `Request failed (${response.status})`);
+    error.references = details?.references;
+    throw error;
   }
   return json ? response.json() : response.text();
 }
@@ -151,6 +153,7 @@ function App() {
   const [message, setMessage] = useState('Loading repository…');
   const [busy, setBusy] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
+  const [mediaDeleteError, setMediaDeleteError] = useState(null);
   const [media, setMedia] = useState([]);
   const [mediaView, setMediaView] = useState('grid');
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -473,9 +476,33 @@ function App() {
   async function showMedia() {
     try {
       setMedia(await api(`/api/media?directory=${encodeURIComponent(defaultUploadDirectory)}`));
+      setMediaDeleteError(null);
       setMediaOpen(true);
     } catch (error) {
       setMessage(error.message);
+    }
+  }
+
+  async function deleteMedia(filePath) {
+    if (busy) return;
+    const filename = filePath.split('/').pop();
+    if (dirty) {
+      setMediaDeleteError({message: 'Save your document before deleting an image so its references can be checked.'});
+      return;
+    }
+    if (!window.confirm(`Check for references and delete "${filename}" if none are found?`)) return;
+    setBusy(true);
+    setMediaDeleteError(null);
+    try {
+      await api(`/api/media/file?path=${encodeURIComponent(filePath)}`, {method: 'DELETE'});
+      setMedia((items) => items.filter((item) => item.filePath !== filePath));
+      await refreshTree();
+      await refreshStatus();
+      setMessage(`Deleted ${filename}`);
+    } catch (error) {
+      setMediaDeleteError({message: error.message, references: error.references});
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -794,17 +821,38 @@ function App() {
                 List
               </button>
             </div>
+            {mediaDeleteError && (
+              <div className="settings-error" role="alert">
+                {mediaDeleteError.message}
+                {mediaDeleteError.references?.length > 0 && (
+                  <ul>
+                    {mediaDeleteError.references.map((file) => <li key={file}>{file}</li>)}
+                  </ul>
+                )}
+              </div>
+            )}
             <div className={mediaView === 'grid' ? 'media-grid' : 'media-list'}>
               {media.map(({filePath, addedAt}) => (
-                <button key={filePath} className="media-card" onClick={() => insertMedia(filePath)}>
-                  {mediaView === 'grid' && (
-                    <img src={`/api/media/file?path=${encodeURIComponent(filePath)}`} alt="" loading="lazy" />
-                  )}
-                  <span>{filePath.split('/').pop()}</span>
-                  <time dateTime={new Date(addedAt).toISOString()}>
-                    {mediaDateFormat.format(addedAt)}
-                  </time>
-                </button>
+                <div key={filePath} className="media-item">
+                  <button className="media-card" disabled={busy} onClick={() => insertMedia(filePath)}>
+                    {mediaView === 'grid' && (
+                      <img src={`/api/media/file?path=${encodeURIComponent(filePath)}`} alt="" loading="lazy" />
+                    )}
+                    <span>{filePath.split('/').pop()}</span>
+                    <time dateTime={new Date(addedAt).toISOString()}>
+                      {mediaDateFormat.format(addedAt)}
+                    </time>
+                  </button>
+                  <button
+                    type="button"
+                    className="media-delete danger-text"
+                    aria-label={`Delete ${filePath.split('/').pop()}`}
+                    onClick={() => deleteMedia(filePath)}
+                    disabled={busy}
+                  >
+                    Delete
+                  </button>
+                </div>
               ))}
               {!media.length && (
                 <div className="empty-media">

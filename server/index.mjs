@@ -285,6 +285,19 @@ app.get('/api/media/file', async (request, response, next) => {
   }
 });
 
+app.delete('/api/media/file', async (request, response, next) => {
+  try {
+    const references = await repository.deleteUnusedMedia(String(request.query.path || ''));
+    if (references.length) {
+      response.status(409).json({error: 'Possible image references found.', references});
+      return;
+    }
+    response.json({ok: true});
+  } catch (error) {
+    next(error);
+  }
+});
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {fileSize: 25 * 1024 * 1024},

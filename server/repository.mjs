@@ -10,7 +10,7 @@ import {
   isNpmCiLockfileError,
   validateDocusaurusProject,
 } from './dependencies.mjs';
-import {previewPathForDocument, resolveInside, toPosixPath} from './paths.mjs';
+import {mentionsMediaFilename, previewPathForDocument, resolveInside, toPosixPath} from './paths.mjs';
 
 const execFileAsync = promisify(execFile);
 const ignoredDirectories = new Set([
@@ -253,6 +253,38 @@ export class Repository {
       throw new Error('Only files can be deleted');
     }
     await fs.unlink(absolutePath);
+  }
+
+  async deleteUnusedMedia(filePath) {
+    const absolutePath = resolveInside(this.directory, filePath);
+    const filename = path.basename(absolutePath);
+    if (filename.startsWith('.') || !mediaExtensions.has(path.extname(filename).toLowerCase())) {
+      throw new Error('Select an image from the media library');
+    }
+    const root = await fs.realpath(this.directory);
+    const realFile = await fs.realpath(absolutePath);
+    if (resolveInside(root, realFile) !== path.join(root, path.relative(this.directory, absolutePath))
+      || !(await fs.lstat(absolutePath)).isFile()) {
+      throw new Error('Only regular images inside the repository can be deleted');
+    }
+
+    const references = [];
+    const pending = await this.listTree();
+    while (pending.length) {
+      const entry = pending.pop();
+      if (entry.type === 'directory') {
+        pending.push(...entry.children);
+      } else if (/\.mdx?$/i.test(entry.path)) {
+        const document = resolveInside(this.directory, entry.path);
+        if ((await fs.lstat(document)).isFile()
+          && mentionsMediaFilename(await this.readFile(entry.path), filename)) {
+          references.push(entry.path);
+        }
+      }
+    }
+
+    if (!references.length) await fs.unlink(absolutePath);
+    return references.sort();
   }
 
   async moveFile(fromPath, toPath) {
