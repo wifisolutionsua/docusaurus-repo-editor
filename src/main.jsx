@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import CodeMirror from '@uiw/react-codemirror';
 import {markdown} from '@codemirror/lang-markdown';
 import editorLogo from './assets/editor-logo.svg';
+import {matchingSourceHeading, sourceHeadings} from './preview-headings.mjs';
 import './styles.css';
 
 async function api(url, options = {}) {
@@ -108,6 +109,8 @@ const snippets = [
 ];
 
 const imagePattern = /\.(png|jpe?g|gif|webp|svg)$/i;
+const markdownSupport = markdown();
+const previewHeadingSelector = '.markdown :is(h1, h2, h3, h4, h5, h6)';
 const clipboardImageExtensions = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
@@ -127,6 +130,7 @@ const mediaDateFormat = new Intl.DateTimeFormat(undefined, {
 
 function App() {
   const editorRef = useRef(null);
+  const [previewDocument, setPreviewDocument] = useState(null);
   const [theme, setTheme] = useState(() => {
     try {
       return localStorage.getItem('docs-editor-theme') === 'light' ? 'light' : 'dark';
@@ -239,10 +243,54 @@ function App() {
   useEffect(() => {
     if (!refreshPending || previewPhase !== 'ready') return;
     const timer = window.setTimeout(() => {
-      setPreviewFrame({url: previewUrl, version: previewVersion});
+      setPreviewFrame({url: previewUrl, version: previewVersion, filePath: selectedPath});
     }, 1250);
     return () => window.clearTimeout(timer);
-  }, [previewUrl, previewVersion, previewPhase, refreshPending]);
+  }, [previewUrl, previewVersion, previewPhase, refreshPending, selectedPath]);
+
+  useEffect(() => {
+    if (!previewDocument || !markdownSelected || previewFrame?.filePath !== selectedPath) return;
+    const route = new URL(previewFrame.url).pathname.replace(/\/$/, '');
+    const style = previewDocument.createElement('style');
+    style.textContent = `${previewHeadingSelector} { cursor: pointer; }`;
+    previewDocument.head.appendChild(style);
+
+    function jumpToHeading(event) {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey
+        || event.altKey || event.shiftKey || previewDocument.location.pathname.replace(/\/$/, '') !== route) return;
+      const heading = event.target.closest?.(previewHeadingSelector);
+      if (!heading || event.target.closest('a, button, input, select, textarea')) return;
+      if (!previewDocument.getSelection()?.isCollapsed) return;
+      const view = editorRef.current?.view;
+      if (!view) return;
+
+      const headings = Array.from(heading.closest('.markdown').querySelectorAll('h1, h2, h3, h4, h5, h6'));
+      const rendered = headings.map((element) => {
+        const label = element.cloneNode(true);
+        label.querySelectorAll('.hash-link').forEach((link) => link.remove());
+        return {level: Number(element.tagName[1]), id: element.id, text: label.textContent};
+      });
+      const decoder = previewDocument.createElement('textarea');
+      const source = sourceHeadings(markdownSupport.language.parser, view.state.doc.toString(), (text) => {
+        decoder.innerHTML = text.replace(/</g, '&lt;');
+        return decoder.value;
+      });
+      const match = matchingSourceHeading(source, rendered, headings.indexOf(heading));
+      if (!match) {
+        setMessage('No matching Markdown heading in the open document.');
+        return;
+      }
+      view.dispatch({selection: {anchor: match.from}, scrollIntoView: true});
+      view.focus();
+      setMessage(`Jumped to line ${view.state.doc.lineAt(match.from).number}.`);
+    }
+
+    previewDocument.addEventListener('click', jumpToHeading);
+    return () => {
+      previewDocument.removeEventListener('click', jumpToHeading);
+      style.remove();
+    };
+  }, [previewDocument, previewFrame, selectedPath, markdownSelected]);
 
   useEffect(() => {
     document.documentElement.dataset.editorTheme = theme;
@@ -744,7 +792,7 @@ function App() {
               ref={editorRef}
               value={content}
               height="100%"
-              extensions={[markdown()]}
+              extensions={[markdownSupport]}
               onChange={setContent}
               basicSetup={{
                 lineNumbers: true,
@@ -774,6 +822,7 @@ function App() {
               key={`${previewFrame.url}-${previewFrame.version}`}
               title="Docusaurus preview"
               src={previewFrame.url}
+              onLoad={(event) => setPreviewDocument(event.currentTarget.contentDocument)}
             />
           )}
           {previewPhase === 'error' && previewStatus.message && (
